@@ -1,13 +1,16 @@
 import { onBoard } from "@/features/auth/action/onboard";
-import {auth} from "@clerk/nextjs/server";
+import { auth } from "@clerk/nextjs/server";
 import React from "react";
+import { ChatShell } from "@/features/conversations/components/chat-shell";
 
-const RootGrouplayout=async({children}:{children:React.ReactNode})=>{
-    
+const RootGrouplayout = async ({ children }: { children: React.ReactNode }) => {
+
     await auth.protect()
     await onBoard()
-    return(
-        <>{children}</>
+    return (
+        <ChatShell>
+            {children}
+        </ChatShell>
     )
 }
 

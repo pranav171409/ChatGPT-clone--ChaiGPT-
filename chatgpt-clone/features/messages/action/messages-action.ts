@@ -1,133 +1,187 @@
 "use server";
+
 import { revalidatePath } from "next/cache";
 import { requireUser } from "@/features/auth/action/require-user";
 import { prisma } from "@/lib/db";
 import type { MessageRole } from "@/lib/generated/prisma/client";
 
-
 export type MessageItem = {
-    id: string;
-    conversationId: string;
-    role: MessageRole;
-    status: "PENDING" | "COMPLETE" | "ERROR";
-    content: string;
-    createdAt: Date;
-    updatedAt: Date;
+  id: string;
+  conversationId: string;
+  role: MessageRole;
+  status: "PENDING" | "COMPLETE" | "ERROR";
+  content: string;
+  createdAt: Date;
+  updatedAt: Date;
 };
 
-async function assertOwnsConversation(conversationId: string, userId: string) {
-    const conversation = await prisma.conversation.findFirst({
-        where: { id: conversationId, userId },
-    });
+async function assertOwnsConversation(
+  conversationId: string,
+  userId: string
+) {
+  const conversation = await prisma.conversation.findFirst({
+    where: { id: conversationId, userId },
+  });
 
-    if (!conversation) {
-        throw new Error("Conversation not found");
-    }
+  if (!conversation) {
+    throw new Error("Conversation not found");
+  }
 
-    return conversation;
+  return conversation;
 }
 
 export async function listMessages(
-    conversationId: string
-  ): Promise<MessageItem[]> {
-    const user = await requireUser();
-    await assertOwnsConversation(conversationId, user.id);
-  
-    return prisma.message.findMany({
-      where: { conversationId },
-      orderBy: { createdAt: "asc" },
-      select: {
-        id: true,
-        conversationId: true,
-        role: true,
-        status: true,
-        content: true,
-        createdAt: true,
-        updatedAt: true,
-      },
-    });
+  conversationId: string
+): Promise<MessageItem[]> {
+  const user = await requireUser();
+  await assertOwnsConversation(conversationId, user.id);
+
+  return prisma.message.findMany({
+    where: { conversationId },
+    orderBy: { createdAt: "asc" },
+    select: {
+      id: true,
+      conversationId: true,
+      role: true,
+      status: true,
+      content: true,
+      createdAt: true,
+      updatedAt: true,
+    },
+  });
+}
+
+export async function createMessage(
+  conversationId: string,
+  content: string
+) {
+  const user = await requireUser();
+
+  const conversation = await assertOwnsConversation(
+    conversationId,
+    user.id
+  );
+
+  const trimmed = content.trim();
+
+  if (!trimmed) {
+    throw new Error("Message cannot be empty");
   }
 
-  export async function createMessage(conversationId: string, content: string) {
-    const user = await requireUser();
-    const conversation = await assertOwnsConversation(conversationId, user.id);
-  
-    const trimmed = content.trim();
-    if (!trimmed) {
-      throw new Error("Message cannot be empty");
-    }
-  
-    const message = await prisma.message.create({
-      data: {
-        conversationId,
-        role: "USER",
-        status: "COMPLETE",
-        content: trimmed,
-      },
-    });
-  
-    const shouldRename =
-      conversation.title === "New Chat" || conversation.title.trim() === "";
-  
-    await prisma.conversation.update({
-      where: { id: conversationId },
-      data: {
-        lastMessageAt: new Date(),
-        ...(shouldRename
-          ? {
-              title:
-                trimmed.length > 48 ? `${trimmed.slice(0, 48)}…` : trimmed,
-            }
-          : {}),
-      },
-    });
-  
-    revalidatePath("/");
-    revalidatePath(`/c/${conversationId}`);
-    return message;
+  // Get the Main branch for this conversation.
+  const branch = await prisma.branch.findFirst({
+    where: {
+      conversationId,
+      name: "Main",
+    },
+    orderBy: {
+      createdAt: "asc",
+    },
+  });
+
+  if (!branch) {
+    throw new Error("Main branch not found");
   }
-  
-  export async function updateMessage(messageId: string, content: string) {
-    const user = await requireUser();
-    const trimmed = content.trim();
-  
-    if (!trimmed) {
-      throw new Error("Message cannot be empty");
-    }
-  
-    const existing = await prisma.message.findUnique({
-      where: { id: messageId },
-      include: { conversation: true },
-    });
-  
-    if (!existing || existing.conversation.userId !== user.id) {
-      throw new Error("Message not found");
-    }
-  
-    const message = await prisma.message.update({
-      where: { id: messageId },
-      data: { content: trimmed },
-    });
-  
-    revalidatePath(`/c/${existing.conversationId}`);
-    return message;
+
+  const message = await prisma.message.create({
+    data: {
+      conversationId,
+      branchId: branch.id,
+      role: "USER",
+      status: "COMPLETE",
+      content: trimmed,
+      parts: [
+        {
+          type: "text",
+          text: trimmed,
+        },
+      ],
+    },
+  });
+
+  const shouldRename =
+    conversation.title === "New Chat" ||
+    conversation.title.trim() === "";
+
+  await prisma.conversation.update({
+    where: { id: conversationId },
+    data: {
+      lastMessageAt: new Date(),
+      ...(shouldRename
+        ? {
+            title:
+              trimmed.length > 48
+                ? `${trimmed.slice(0, 48)}…`
+                : trimmed,
+          }
+        : {}),
+    },
+  });
+
+  revalidatePath("/");
+  revalidatePath(`/c/${conversationId}`);
+
+  return message;
+}
+
+export async function updateMessage(
+  messageId: string,
+  content: string
+) {
+  const user = await requireUser();
+  const trimmed = content.trim();
+
+  if (!trimmed) {
+    throw new Error("Message cannot be empty");
   }
-  
-  export async function deleteMessage(messageId: string) {
-    const user = await requireUser();
-  
-    const existing = await prisma.message.findUnique({
-      where: { id: messageId },
-      include: { conversation: true },
-    });
-  
-    if (!existing || existing.conversation.userId !== user.id) {
-      throw new Error("Message not found");
-    }
-  
-    await prisma.message.delete({ where: { id: messageId } });
-  
-    revalidatePath(`/c/${existing.conversationId}`);
-    return { id: messageId, conversationId: existing.conversationId };
+
+  const existing = await prisma.message.findUnique({
+    where: { id: messageId },
+    include: { conversation: true },
+  });
+
+  if (!existing || existing.conversation.userId !== user.id) {
+    throw new Error("Message not found");
   }
-  
+
+  const message = await prisma.message.update({
+    where: { id: messageId },
+    data: {
+      content: trimmed,
+      parts: [
+        {
+          type: "text",
+          text: trimmed,
+        },
+      ],
+    },
+  });
+
+  revalidatePath(`/c/${existing.conversationId}`);
+
+  return message;
+}
+
+export async function deleteMessage(messageId: string) {
+  const user = await requireUser();
+
+  const existing = await prisma.message.findUnique({
+    where: { id: messageId },
+    include: { conversation: true },
+  });
+
+  if (!existing || existing.conversation.userId !== user.id) {
+    throw new Error("Message not found");
+  }
+
+  await prisma.message.delete({
+    where: { id: messageId },
+  });
+
+  revalidatePath(`/c/${existing.conversationId}`);
+
+  return {
+    id: messageId,
+    conversationId: existing.conversationId,
+  };
+}

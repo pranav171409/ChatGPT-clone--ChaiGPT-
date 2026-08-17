@@ -1,8 +1,3 @@
-// This is your Prisma schema file,
-// learn more about it in the docs: https://pris.ly/d/prisma-schema
-
-// Get a free hosted Postgres database in seconds: `npx create-db`
-
 generator client {
   provider = "prisma-client"
   output   = "../lib/generated/prisma"
@@ -12,63 +7,81 @@ datasource db {
   provider = "postgresql"
 }
 
-model User{
-  id String @id @default(uuid())
-  clerkId String @unique
-  email String? @unique
-  firstName String?
-  lastName String?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  imageUrl String?
-
+model User {
+  id            String         @id @default(uuid())
+  clerkId       String         @unique
+  email         String?        @unique
+  firstName     String?
+  lastName      String?
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  imageUrl      String?
   conversations Conversation[]
 }
 
-model Conversation{
-  id String @id @default(cuid())
-  userId String 
-  title String @default("New Chat")
-  model String? 
-  systemPrompt String? @db.Text
-  isPinned Boolean @default(false)
-  isArchived Boolean @default(false)
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  lastMessageAt DateTime @default(now())
+model Conversation {
+  id            String    @id @default(cuid())
+  userId        String
+  title         String    @default("New Chat")
+  model         String?
+  systemPrompt  String?
+  isPinned      Boolean   @default(false)
+  isArchived    Boolean   @default(false)
+  createdAt     DateTime  @default(now())
+  updatedAt     DateTime  @updatedAt
+  lastMessageAt DateTime  @default(now())
 
-  user User @relation(fields: [userId], references: [id], onDelete: Cascade) 
-  messages Message[]
+  user          User      @relation(fields: [userId], references: [id], onDelete: Cascade)
+  messages      Message[]
+  branches      Branch[]
 
   @@index([userId, lastMessageAt(sort: Desc)])
   @@index([userId, isPinned, lastMessageAt(sort: Desc)])
 }
 
-enum MessageRole{
+model Branch {
+  id              String       @id @default(cuid())
+  conversationId  String
+  parentMessageId String?
+  name            String       @default("Main")
+  createdAt       DateTime     @default(now())
+  updatedAt       DateTime     @updatedAt
+
+  conversation    Conversation @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  messages        Message[]
+
+  @@index([conversationId])
+  @@index([parentMessageId])
+}
+
+model Message {
+  id             String        @id @default(cuid())
+  conversationId String
+  branchId       String?
+  role           MessageRole
+  status         MessageStatus @default(COMPLETE)
+  content        String
+  parts          Json
+  metadata       Json?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
+
+  conversation   Conversation  @relation(fields: [conversationId], references: [id], onDelete: Cascade)
+  branch         Branch?       @relation(fields: [branchId], references: [id], onDelete: Cascade)
+
+  @@index([conversationId, createdAt(sort: Desc)])
+  @@index([branchId, createdAt(sort: Asc)])
+}
+
+enum MessageRole {
   USER
   ASSISTANT
   SYSTEM
   TOOL
 }
 
-enum MessageStatus{
-  PENDING 
+enum MessageStatus {
+  PENDING
   COMPLETE
   ERROR
-}
-
-model Message{
-  id String  @id @default(cuid())
-  conversationId String
-  role MessageRole 
-  status MessageStatus @default(COMPLETE)
-  content String @db.Text
-  parts Json?
-  metadata Json?
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-
-  conversation Conversation  @relation(fields: [conversationId], references: [id], onDelete: Cascade)
-
-  @@index([conversationId, createdAt(sort: Desc)])
 }
