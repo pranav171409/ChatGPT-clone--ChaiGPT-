@@ -248,7 +248,7 @@ Do not commit your `.env` file or expose API keys publicly.
 ### 1. Clone the repository
 
 ```bash
-git clone <your-github-repository-url>
+git clone https://github.com/pranav171409/ChatGPT-clone--ChaiGPT
 ```
 
 ### 2. Enter the project directory
@@ -321,7 +321,7 @@ The application is deployed using Vercel.
 
 **Live Demo:**
 
-<PASTE-YOUR-VERCEL-LINK-HERE>
+https://chat-gpt-clone-chai-gpt-zv1z.vercel.app
 
 ---
 
